@@ -73,6 +73,54 @@ class Arboretum(service.Service):
         self.logger.debug("s3cmd sync output: {}".format(
             output.stdout.decode("UTF-8")))
 
+    def destroyInstance(self, group, caller):
+        # This function is part of the daemon class because it's usable
+        # directly from the cli or as part of the daemon's loop. It doesn't
+        # have to be here, but I thought it would be more convenient 
+        db = sqlite3.connect(DATABASE_NAME)
+        cursor = db.cursor()
+
+        cursor.execute(''' SELECT group_name, instance_id FROM branches WHERE
+            group_name = ?''', (group,))
+
+        result = cursor.fetchall()
+
+        if len(result) == 0:
+            if caller == "daemon":
+                self.logger.warning("{} instance not found in the " \
+                    "database.".format(group))
+            elif caller == "cli":
+                print("{} instance not found in the database. The instance " \
+                    "was either already destroyed or never created in the" \
+                    "first place.".format(group))
+
+            return False
+
+        # result is a tuple in a list
+        server_id = result[0][1]
+
+        conn = openstack.connect(cloud='openstack')
+        success = conn.delete_server(server_id)
+        conn.close()
+
+        if not success:
+            if caller == "daemon":
+                self.logger.warning("Can't destroy {} instance, it doesn't " \
+                    "exist.".format(group))
+            elif caller == "cli":
+                print("Can't destroy {} instance, it doesn't exist.".format(
+                    group))
+        else:
+            if caller == "daemon":
+                self.logger.info("{} instance destroyed.".format(group))
+            elif caller == "cli":
+                print("{} instance destroyed successfully.".format(group))
+
+        cursor.execute('DELETE FROM branches WHERE group_name = ?', (group,))
+
+        db.commit()
+        db.close()
+
 def initialiseDB():
     db = sqlite3.connect(DATABASE_NAME)
     cursor = db.cursor()
@@ -112,6 +160,7 @@ def startInstance(group):
         security_groups=['default', 'cloudforms_web_in',
             'cloudforms_ssh_in', 'cloudforms_local_in'],
         userdata=userdata)
+    conn.close()
 
     db = sqlite3.connect(DATABASE_NAME)
     cursor = db.cursor()
@@ -230,4 +279,4 @@ if __name__ == '__main__':
         startInstance(args.group[0])
 
     elif args.subparser == "destroy":
-        pass
+        service.destroyInstance(args.group[0], "cli")
