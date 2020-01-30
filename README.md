@@ -14,7 +14,8 @@ Python libraries:
 
 ### Quick start guide
 
-For Arboretum to work, S3 (`~/.s3cfg`) and OpenStack (`~/.config/openstack/clouds.yaml`) config files have to be present on the machine. 
+For Arboretum to work, S3 (`~/.s3cfg`) and OpenStack (`~/.config/openstack/clouds.yaml`) config files have to be present on the machine. Enter the S3 access and secret keys into `user.sh`, the script will be passed to created machines as userdata.
+
 Arboretum has the following commands:
  - `start` - start the Arboretum daemon
  - `stop` - stop the Arboretum daemon
