@@ -40,7 +40,7 @@ parser_destroy.add_argument('group', nargs=1,
 
 
 class Arboretum(service.Service):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, db_name, *args, **kwargs):
         super(Arboretum, self).__init__(*args, **kwargs)
 
         log_handler = logging.FileHandler(filename='arboretum.log')
@@ -51,12 +51,29 @@ class Arboretum(service.Service):
 
         self.logger.setLevel(logging.INFO)
 
-        self.db_name = DATABASE_NAME
+        self.db_name = db_name
 
     def run(self):
         while not self.got_sigterm():
-            # Right now, the daemon doesn't actually do anything
-            time.sleep(1)
+            time.sleep(2)
+            self.destroyExpiredInstances()
+
+    def destroyExpiredInstances(self):
+        db = sqlite3.connect(self.db_name)
+        cursor = db.cursor()
+
+        cursor.execute('''SELECT instance_id, group_name, prune_time FROM
+            branches WHERE prune_time <= time("now")''')
+
+        for result in cursor:
+            self.logger.info("{} instance has expired.\n\tPrune time: {}\n\t" \
+                "Current time: {}".format(
+                    result[1], result[2],
+                    time.strftime("%H:%M:%S", time.gmtime()) ))
+
+            self.destroyInstance(result[1], "daemon")
+
+        db.close()
 
     def estimateRequirements(self):
         """ Fetches all the mpistat chunks in S3 and uses them to create a
@@ -76,8 +93,8 @@ class Arboretum(service.Service):
     def destroyInstance(self, group, caller):
         # This function is part of the daemon class because it's usable
         # directly from the cli or as part of the daemon's loop. It doesn't
-        # have to be here, but I thought it would be more convenient 
-        db = sqlite3.connect(DATABASE_NAME)
+        # have to be here, but I thought it would be more convenient
+        db = sqlite3.connect(DATABASE_NAME if caller == "cli" else self.db_name)
         cursor = db.cursor()
 
         cursor.execute(''' SELECT group_name, instance_id FROM branches WHERE
@@ -177,7 +194,7 @@ def startInstance(group):
     db.close()
 
     logger = logging.getLogger(__name__)
-    logger.info("Created new Treeserve instance:\nID: {}\n" \
+    logger.info("Created new Treeserve instance:\n\tID: {}\n\t" \
         "Group: {}".format(info.id, group))
 
     print("Created new Treeserve instance:\nID: {}\n" \
@@ -263,7 +280,9 @@ if __name__ == '__main__':
     initLogger()
     args = parser.parse_args()
 
-    service = Arboretum('arboretum', pid_dir='/tmp')
+    # daemon's working directory is root, so it needs the DB's absolute path
+    service = Arboretum(os.path.abspath(DATABASE_NAME), 'arboretum',
+        pid_dir='/tmp')
 
     if args.subparser == "start":
         checkDB(DATABASE_NAME)
