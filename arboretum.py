@@ -6,6 +6,7 @@ import sqlite3
 import os
 import sys
 import subprocess
+import re
 
 import jinja2
 import service
@@ -26,12 +27,18 @@ parser_stop = subparsers.add_parser('stop',
 parser_status = subparsers.add_parser('status',
     help="Print status of active instances to stdout.")
 parser_status.add_argument('--tojson', dest='tojson', action='store_const',
-    const=True, default=True, help="Format output to JSON.")
+    const=True, default=False, help="Format output as JSON.")
+parser_status.add_argument('--totsv', dest='totsv', action='store_const',
+    const=True, default=False, help="Format output as TSV.")
 
 parser_instantiate = subparsers.add_parser('create',
     help="Create a new Branchserve instance on OpenStack")
 parser_instantiate.add_argument('group', nargs=1,
     help="Unix group name to make an instance for")
+parser_instantiate.add_argument('--lifetime', nargs='+', default='8 hours',
+    help="How long Arboretum will wait before automatically destroying " \
+        "the instance. Defaults to 8 hours.\nFormat: [xyz] minutes/hours/" \
+        "days OR forever\nNote: [xyz] should be three digits maximum.")
 
 parser_destroy = subparsers.add_parser('destroy',
     help="Destroy an existing Branchserve instance on Openstack")
@@ -63,7 +70,7 @@ class Arboretum(service.Service):
         cursor = db.cursor()
 
         cursor.execute('''SELECT instance_id, group_name, prune_time FROM
-            branches WHERE prune_time <= time("now")''')
+            branches WHERE prune_time <= datetime("now")''')
 
         for result in cursor:
             self.logger.info("{} instance has expired.\n\tPrune time: {}\n\t" \
@@ -158,7 +165,16 @@ def initialiseDB():
     logger = logging.getLogger(__name__)
     logger.info("Using {} as SQLite database file.".format(DATABASE_NAME))
 
-def startInstance(group):
+def startInstance(group, lifetime):
+    db = sqlite3.connect(DATABASE_NAME)
+    cursor = db.cursor()
+
+    cursor.execute('''SELECT * FROM branches WHERE group_name = ?''', (group,))
+
+    if len(cursor.fetchall()) > 0:
+        print("Can't create {} instance, one already exists!".format(group))
+        sys.exit(1)
+
     name = 'arboretum-{}-branch'.format(group)
     # TODO: implement process to estimate requirements for each group
     flavor = 'm2.small'
@@ -179,26 +195,23 @@ def startInstance(group):
         userdata=userdata)
     conn.close()
 
-    db = sqlite3.connect(DATABASE_NAME)
-    cursor = db.cursor()
-
     # OpenStack takes its time allocating the IP, so info.private_v4 will most
     # likely be None here. It will be looked up again when necessary and
     # cached in the database.
     cursor.execute('''INSERT INTO branches(group_name, instance_ip,
         prune_time, instance_id)
-        VALUES(?, ?, time("now", "+12 hours"), ?)''',
-        (group, info.private_v4, info.id))
+        VALUES(?, ?, datetime("now", ?), ?)''',
+        (group, info.private_v4, lifetime, info.id))
 
     db.commit()
     db.close()
 
     logger = logging.getLogger(__name__)
     logger.info("Created new Treeserve instance:\n\tID: {}\n\t" \
-        "Group: {}".format(info.id, group))
+        "Group: {}\n\tLifetime: {}".format(info.id, group, lifetime))
 
-    print("Created new Treeserve instance:\nID: {}\n" \
-        "Group: {}".format(info.id, group))
+    print("Created new Treeserve instance:\nID: {}\nGroup: {}\n" \
+        "Lifetime: {}".format(info.id, group, lifetime))
 
 def checkDB(name):
     """ Checks whether the DB file called 'name' already exists, and asks the
@@ -267,6 +280,17 @@ database. Do you want to overwrite the file?
             print("Please move or rename the file and start Arboretum again.")
             sys.exit()
 
+def verifyLifetime(lifetime):
+    """Syntax checker for the 'lifetime' argument."""
+    if re.search("(^\d{1,3} (minutes?|hours?|days?)$)|(^forever$)", lifetime) is None:
+        print("--lifetime argument {} isn't valid.\nFormat: [xyz] minutes/" \
+            "hours/days OR forever\nNote: [xyz] should be three digits " \
+            "maximum.".format(lifetime))
+
+        sys.exit(1)
+    else:
+        return lifetime
+
 def initLogger():
     _log_handler = logging.FileHandler(filename='arboretum.log')
     _log_formatter = logging.Formatter(fmt="CLI: %(message)s")
@@ -295,7 +319,8 @@ if __name__ == '__main__':
         print("Daemon stopped successfully.")
 
     elif args.subparser == "create":
-        startInstance(args.group[0])
+        lifetime = verifyLifetime(" ".join(args.lifetime))
+        startInstance(args.group[0], lifetime)
 
     elif args.subparser == "destroy":
         service.destroyInstance(args.group[0], "cli")
