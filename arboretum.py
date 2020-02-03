@@ -198,10 +198,16 @@ def startInstance(group, lifetime):
     # OpenStack takes its time allocating the IP, so info.private_v4 will most
     # likely be None here. It will be looked up again when necessary and
     # cached in the database.
-    cursor.execute('''INSERT INTO branches(group_name, instance_ip,
-        prune_time, instance_id)
-        VALUES(?, ?, datetime("now", ?), ?)''',
-        (group, info.private_v4, lifetime, info.id))
+    if lifetime == "forever":
+        cursor.execute('''INSERT INTO branches(group_name, instance_ip,
+            instance_id)
+            VALUES(?, ?, ?)''',
+            (group, info.private_v4, info.id))
+    else:
+        cursor.execute('''INSERT INTO branches(group_name, instance_ip,
+            prune_time, instance_id)
+            VALUES(?, ?, datetime("now", ?), ?)''',
+            (group, info.private_v4, lifetime, info.id))
 
     db.commit()
     db.close()
