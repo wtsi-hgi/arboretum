@@ -96,6 +96,7 @@ class Arboretum(service.Service):
         self.logger.info("s3cmd sync complete.")
         self.logger.debug("s3cmd sync output: {}".format(
             output.stdout.decode("UTF-8")))
+        # TODO
 
     def destroyInstance(self, group, caller):
         # This function is part of the daemon class because it's usable
@@ -153,7 +154,8 @@ def initialiseDB():
         cursor.execute('''CREATE TABLE branches(group_name TEXT PRIMARY KEY,
             instance_ip TEXT,
             prune_time TEXT,
-            instance_id TEXT)
+            instance_id TEXT,
+            creation_time TEXT)
         ''')
     except sqlite3.OperationalError:
         # this triggers when table "branches" already exists in the DB
@@ -200,13 +202,13 @@ def startInstance(group, lifetime):
     # cached in the database.
     if lifetime == "forever":
         cursor.execute('''INSERT INTO branches(group_name, instance_ip,
-            instance_id)
-            VALUES(?, ?, ?)''',
+            instance_id, creation_time)
+            VALUES(?, ?, ?, datetime("now"))''',
             (group, info.private_v4, info.id))
     else:
         cursor.execute('''INSERT INTO branches(group_name, instance_ip,
-            prune_time, instance_id)
-            VALUES(?, ?, datetime("now", ?), ?)''',
+            prune_time, instance_id, creation_time)
+            VALUES(?, ?, datetime("now", ?), ?, datetime("now"))''',
             (group, info.private_v4, lifetime, info.id))
 
     db.commit()
@@ -315,18 +317,40 @@ if __name__ == '__main__':
         pid_dir='/tmp')
 
     if args.subparser == "start":
-        checkDB(DATABASE_NAME)
-        initialiseDB()
-        service.start()
-        print("Daemon started successfully.")
+        if service.is_running():
+            print("Error: Arboretum daemon is already running at PID " \
+                "{}.".format(service.get_pid()))
+            exit(1)
+        else:
+            checkDB(DATABASE_NAME)
+            initialiseDB()
+            service.start()
+            print("Daemon started successfully.")
 
     elif args.subparser == "stop":
-        service.stop()
-        print("Daemon stopped successfully.")
+        if not service.is_running():
+            print("Error: Arboretum daemon is not running.")
+            exit(1)
+        else:
+            service.stop()
+            print("Daemon stopped successfully.")
 
     elif args.subparser == "create":
-        lifetime = verifyLifetime(" ".join(args.lifetime))
-        startInstance(args.group[0], lifetime)
+        go = True
+        if not service.is_running():
+            print("Warning: Arboretum daemon is not running, instances with " \
+                "a set lifetime will not be automatically destroyed. Run " \
+                "'arboretum start' to start the daemon.\nDo you want to " \
+                "proceed anyway?\n\ny/N")
+            choice = input("> ").lower()
+
+            go = True if choice == "y" else False
+
+        if go:
+            lifetime = verifyLifetime(" ".join(args.lifetime))
+            startInstance(args.group[0], lifetime)
+        else:
+            print("Exiting.")
 
     elif args.subparser == "destroy":
         service.destroyInstance(args.group[0], "cli")
