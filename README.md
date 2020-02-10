@@ -23,4 +23,4 @@ Arboretum has the following commands:
  - `create/destroy [group]` - launch/destroy a Branchserve instance for Unix group [group]'s data
 
  `warden.py` is an API for some Arboretum functionality. Run it using `hug`: `hug -p [port] -f warden.py`. If the port argument is omitted, 8000 is used.
-  - /groups - JSON list of all available groups and their estimated system requirements
+  - `/groups` - JSON list of all available groups and their estimated system requirements
