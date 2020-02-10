@@ -1,6 +1,7 @@
 import logging
 import sqlite3
 import os
+import json
 
 import jinja2
 import openstack
@@ -37,6 +38,37 @@ def initialiseDB():
 
     logger = logging.getLogger(LOGGER_NAME)
     logger.info("Using {} as SQLite database file.".format(DATABASE_NAME))
+
+def getGroups(jsonify):
+    """Prints list of groups saved in the database, either TSV or JSON form,
+    to stdout.
+
+    @param jsonify If True, formats output as a JSON object. If False,
+        formats output as a tab-separated table."""
+
+    db = sqlite3.connect(DATABASE_NAME)
+    cursor = db.cursor()
+
+    cursor.execute('''SELECT group_name, ram, time FROM groups''')
+
+    groups = []
+
+    for group in cursor:
+        entry = {'group_name': group[0], 'ram': group[1],
+            'build_time': group[2]}
+        groups.append(entry)
+
+    db.close()
+
+    if jsonify:
+        # Hug automatically converts this to JSON for warden
+        return groups
+    else:
+        tsv = "Group\tRAM needed\tTime to build"
+        for group in groups:
+            tsv += "\n{}\t{}\t{}".format(
+                group['group_name'], group['ram'], group['time'])
+        return tsv
 
 def startInstance(group, lifetime):
     db = sqlite3.connect(DATABASE_NAME)

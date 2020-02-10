@@ -14,6 +14,6 @@ def initLogger(logger_name, label):
     _log_handler.setFormatter(_log_formatter)
     LOGGER = logging.getLogger(logger_name)
     LOGGER.addHandler(_log_handler)
-    LOGGER.setLevel(logging.INFO)
+    LOGGER.setLevel(logging.DEBUG)
 
     return LOGGER

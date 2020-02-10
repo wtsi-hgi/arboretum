@@ -1,7 +1,9 @@
 import logging
 import time
 import subprocess
+import os
 import sqlite3
+import re
 from pathlib import Path
 
 import jinja2
@@ -30,6 +32,9 @@ class Arboretum(service.Service):
 
     def run(self):
         while not self.got_sigterm():
+            if self.got_signal(10):
+                self.clear_signal(10)
+                self.generateGroupDatabase()
             time.sleep(2)
             self.pruneExpiredInstances()
 
@@ -54,15 +59,50 @@ class Arboretum(service.Service):
         """
         self.logger.info("Running s3cmd sync.")
 
-        output = subprocess.run(['s3cmd', 'sync', '--no-preserve',
-            's3://branchserve/mpistat/', './mpistat/'], check=True,
-            stdout=subprocess.PIPE, cwd=self.working_dir)
+        try:
+            # FIXME: this seems to randomly fail whenever trying to sync new
+            # files to a directory which has already been synced before.
+            # Seems to work if it's re-run a few times though
+            output = subprocess.run(['s3cmd', 'sync', '--no-preserve',
+                '--no-check-md5', 's3://branchserve/mpistat/', './mpistat/'],
+                check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                cwd=self.working_dir)
+        except subprocess.CalledProcessError as error:
+            self.logger.critical("s3cmd call failed!\n{}: {}"
+                .format(type(error), error))
+            return
 
         self.logger.info("s3cmd sync complete.")
         self.logger.debug("s3cmd sync output: {}"
             .format(output.stdout.decode("UTF-8")))
 
-        # TODO
+        group_files = os.listdir(Path(self.working_dir) / "mpistat")
+
+        extension = re.compile('\.dat\.gz$')
+
+        db = sqlite3.connect(self.db_path)
+        cursor = db.cursor()
+
+        # existing groups aren't relevant, for simplicity's sake we can just
+        # nuke the groups table and populate it from scratch
+        cursor.execute('''DELETE FROM groups''')
+        # removes file extensions to get list of available groups
+        for file in group_files:
+            if extension.search(file):
+                _name = extension.sub("", file)
+                cursor.execute('''INSERT INTO groups(group_name, ram, time)
+                    VALUES(?,?,?)''', (_name, "0GB", "0 minutes"))
+
+                db.commit()
+            else:
+                self.logger.warning("File {} found in mpistat chunk " \
+                    "directory, doesn't have '.dat.gz' extension!"
+                    .format(file))
+
+        self.logger.info("Group database generated successfully.")
+        db.close()
+        # TODO: properly estimate requirements, schedule it based on new data
+        # going into S3
 
     def destroyInstance(self, group, caller):
         # This function is part of the daemon class because it's usable

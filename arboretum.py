@@ -51,6 +51,12 @@ parser_destroy = subparsers.add_parser('destroy',
 parser_destroy.add_argument('group', nargs=1,
     help="Name of the Unix group whose instance will be destroyed")
 
+parser_update = subparsers.add_parser('update',
+    help="Update catalogue of S3 mpistat chunks.")
+
+parser_groups = subparsers.add_parser('groups',
+    help="Print a list of available groups and their requirements.")
+
 
 def verifyLifetime(lifetime):
     """Syntax checker for the 'lifetime' argument."""
@@ -68,7 +74,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # daemon's working directory is root, so it needs the current working dir
-    service = Arboretum(os.path.abspath(''), 'arboretum', pid_dir='/tmp')
+    # signal 10 (SIGUSR1) is used for user-defined signals
+    service = Arboretum(os.path.abspath(''), 'arboretum', pid_dir='/tmp',
+        signals=[10])
 
     if args.subparser == "start":
         if service.is_running():
@@ -79,7 +87,13 @@ if __name__ == '__main__':
             db.checkDB(DATABASE_NAME)
             db.initialiseDB()
             service.start()
-            print("Daemon started successfully.")
+
+            time.sleep(1)
+            if service.is_running():
+                print("Daemon started successfully.")
+            else:
+                print("Daemon failed to start or crashed soon after launch! " \
+                    "See the 'arboretum.log' file for details.")
 
     elif args.subparser == "stop":
         if not service.is_running():
@@ -108,3 +122,10 @@ if __name__ == '__main__':
 
     elif args.subparser == "destroy":
         service.destroyInstance(args.group[0], "cli")
+
+    elif args.subparser == "update":
+        # signals daemon to run generateGroupDatabase()
+        service.send_signal(10)
+
+    elif args.subparser == "groups":
+        print(db.getGroups(True))
