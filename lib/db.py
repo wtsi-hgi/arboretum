@@ -19,7 +19,8 @@ def initialiseDB():
             instance_ip TEXT,
             prune_time TEXT,
             instance_id TEXT,
-            creation_time TEXT)
+            creation_time TEXT,
+            status TEXT)
         ''')
     except sqlite3.OperationalError:
         # this triggers when table "branches" already exists in the DB
@@ -40,22 +41,27 @@ def initialiseDB():
     logger.info("Using {} as SQLite database file.".format(DATABASE_NAME))
 
 def getGroups(jsonify):
-    """Prints list of groups saved in the database, either TSV or JSON form,
-    to stdout.
+    """Returns list of groups saved in the database.
 
-    @param jsonify If True, formats output as a JSON object. If False,
-        formats output as a tab-separated table."""
+    @param jsonify If True, returns list object. If False, returns
+        tab-separated table string."""
 
     db = sqlite3.connect(DATABASE_NAME)
     cursor = db.cursor()
 
-    cursor.execute('''SELECT group_name, ram, time FROM groups''')
+    # TODO: decide where/when to query the instance for its IP
+    cursor.execute('''SELECT group_name, ram, time, prune_time, creation_time,
+        status FROM groups OUTER JOIN branches USING group_time''')
 
     groups = []
 
     for group in cursor:
         entry = {'group_name': group[0], 'ram': group[1],
-            'build_time': group[2]}
+            'build_time': group[2], 'prune_time': group[3],
+            'creation_time': group[4], 'status': group[5]}
+        if entry['status'] != 'up':
+            entry['status'] = 'down'
+
         groups.append(entry)
 
     db.close()
@@ -78,6 +84,12 @@ def startInstance(group, lifetime):
 
     if len(cursor.fetchall()) > 0:
         print("Can't create {} instance, one already exists!".format(group))
+        sys.exit(1)
+
+    cursor.execute('''SELECT * FROM groups WHERE group_name = ?''', (group,))
+
+    if len(cursor.fetchall()) == 0:
+        print("Can't create {} instance, group not recognised!".format(group))
         sys.exit(1)
 
     name = 'arboretum-{}-branch'.format(group)
@@ -105,14 +117,15 @@ def startInstance(group, lifetime):
     # cached in the database.
     if lifetime == "forever":
         cursor.execute('''INSERT INTO branches(group_name, instance_ip,
-            instance_id, creation_time)
-            VALUES(?, ?, ?, datetime("now"))''',
-            (group, info.private_v4, info.id))
+            prune_time, instance_id, creation_time, status)
+            VALUES(?, ?, ?, ?, datetime("now"), ?)''',
+            (group, info.private_v4, "never", info.id, "up"))
+            # TODO: 'status' should go from 'building' to 'up'
     else:
         cursor.execute('''INSERT INTO branches(group_name, instance_ip,
-            prune_time, instance_id, creation_time)
-            VALUES(?, ?, datetime("now", ?), ?, datetime("now"))''',
-            (group, info.private_v4, lifetime, info.id))
+            prune_time, instance_id, creation_time, active)
+            VALUES(?, ?, datetime("now", ?), ?, datetime("now"), ?)''',
+            (group, info.private_v4, lifetime, info.id, "up"))
 
     db.commit()
     db.close()

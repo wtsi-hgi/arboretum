@@ -13,7 +13,7 @@ import service
 import openstack
 
 import lib.db as db
-from lib.arborist import Arboretum
+from lib.daemon import Arboretum
 from lib.logger import initLogger
 from lib.constants import DATABASE_NAME
 
