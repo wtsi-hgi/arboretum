@@ -10,6 +10,7 @@ import jinja2
 import service
 import openstack
 
+from . import db
 from .constants import DATABASE_NAME
 from .logger import initLogger
 
@@ -49,7 +50,7 @@ class Arboretum(service.Service):
             self.logger.info("{} instance has expired.\n\tPrune time: {}"
                 .format(result[1], result[2]))
 
-            self.destroyInstance(result[1], "daemon")
+            db.destroyInstance(result[1], "daemon")
 
         db.close()
 
@@ -103,50 +104,3 @@ class Arboretum(service.Service):
         db.close()
         # TODO: properly estimate requirements, schedule it based on new data
         # going into S3
-
-    def destroyInstance(self, group, caller):
-        # This function is part of the daemon class because it's usable
-        # directly from the cli or as part of the daemon's loop. It doesn't
-        # have to be here, but I thought it would be more convenient
-        db = sqlite3.connect(self.db_path)
-        cursor = db.cursor()
-
-        cursor.execute('''SELECT group_name, instance_id FROM branches WHERE
-            group_name = ?''', (group,))
-
-        result = cursor.fetchall()
-
-        if len(result) == 0:
-            if caller == "daemon":
-                self.logger.warning("{} instance not found in the " \
-                    "database.".format(group))
-            elif caller == "cli":
-                print("{} instance not found in the database. The instance " \
-                    "was either already destroyed or never created in the" \
-                    "first place.".format(group))
-
-            return False
-
-        server_id = result[0][1]
-
-        conn = openstack.connect(cloud='openstack')
-        success = conn.delete_server(server_id)
-        conn.close()
-
-        if not success:
-            if caller == "daemon":
-                self.logger.warning("Can't destroy {} instance, it doesn't " \
-                    "exist.".format(group))
-            elif caller == "cli":
-                print("Can't destroy {} instance, it doesn't exist.".format(
-                    group))
-        else:
-            if caller == "daemon":
-                self.logger.info("{} instance destroyed.".format(group))
-            elif caller == "cli":
-                print("{} instance destroyed successfully.".format(group))
-
-        cursor.execute('DELETE FROM branches WHERE group_name = ?', (group,))
-
-        db.commit()
-        db.close()

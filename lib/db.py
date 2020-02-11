@@ -52,8 +52,9 @@ def getGroups(jsonify):
     # TODO: decide where/when to query the instance for its IP
     cursor.execute('''SELECT groups.group_name, groups.ram, groups.time,
         branches.prune_time, branches.creation_time, branches.status
-        FROM groups LEFT OUTER JOIN branches 
-        ON groups.group_name = branches.group_name''')
+        FROM groups LEFT OUTER JOIN branches
+        ON groups.group_name = branches.group_name
+        ORDER BY groups.group_name''')
 
     groups = []
 
@@ -125,7 +126,7 @@ def startInstance(group, lifetime):
             # TODO: 'status' should go from 'building' to 'up'
     else:
         cursor.execute('''INSERT INTO branches(group_name, instance_ip,
-            prune_time, instance_id, creation_time, active)
+            prune_time, instance_id, creation_time, status)
             VALUES(?, ?, datetime("now", ?), ?, datetime("now"), ?)''',
             (group, info.private_v4, lifetime, info.id, "up"))
 
@@ -138,6 +139,59 @@ def startInstance(group, lifetime):
 
     print("Created new Treeserve instance:\nID: {}\nGroup: {}\n" \
         "Lifetime: {}".format(info.id, group, lifetime))
+
+def destroyInstance(group, caller):
+    """ Destroys the instance for 'group'. The value of 'caller' is used to
+    decide how to log messages.
+
+    @param group Name of a Humgen Unix group
+    @param caller If 'cli', the program prints to stdout. If anything else,
+        it's passed to logging.getLogger to fetch a logger object"""
+    if caller != "cli":
+        logger = logging.getLogger(caller)
+
+    db = sqlite3.connect(DATABASE_NAME)
+    cursor = db.cursor()
+
+    cursor.execute('''SELECT group_name, instance_id FROM branches WHERE
+        group_name = ?''', (group,))
+
+    result = cursor.fetchall()
+
+    if len(result) == 0:
+        if caller == "cli":
+            print("{} instance not found in the database. The instance " \
+                "was either already destroyed or never created in the " \
+                "first place.".format(group))
+        else:
+            logger.warning("{} instance not found in the database."
+                .format(group))
+
+        return False
+
+    server_id = result[0][1]
+
+    conn = openstack.connect(cloud='openstack')
+    success = conn.delete_server(server_id)
+    conn.close()
+
+    if not success:
+        if caller == "cli":
+            print("Can't destroy {} instance, it doesn't exist."
+                .format(group))
+        else:
+            logger.warning("Can't destroy {} instance, it doesn't exist."
+                .format(group))
+    else:
+        if caller == "cli":
+            print("{} instance destroyed.".format(group))
+        else:
+            logger.warning("{} instance destroyed successfully.".format(group))
+
+    cursor.execute('''DELETE FROM branches WHERE group_name = ?''', (group,))
+
+    db.commit()
+    db.close()
 
 def checkDB(name):
     """ Checks whether the DB file called 'name' already exists, and asks the

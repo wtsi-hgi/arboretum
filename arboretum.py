@@ -121,7 +121,7 @@ if __name__ == '__main__':
             print("Exiting.")
 
     elif args.subparser == "destroy":
-        service.destroyInstance(args.group[0], "cli")
+        db.destroyInstance(args.group[0], "cli")
 
     elif args.subparser == "update":
         # signals daemon to run generateGroupDatabase()

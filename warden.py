@@ -12,3 +12,11 @@ initLogger(LOGGER_NAME, "API")
 @hug.get('/groups')
 def getGroups():
     return db.getGroups(True)
+
+@hug.get('/create')
+def createInstance(group):
+    db.startInstance(group, "8 hours")
+
+@hug.get('/destroy')
+def destroyInstance(group):
+    db.destroyInstance(group, "api")
