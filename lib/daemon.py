@@ -65,7 +65,8 @@ class Arboretum(service.Service):
             # files to a directory which has already been synced before.
             # Seems to work if it's re-run a few times though
             output = subprocess.run(['s3cmd', 'sync', '--no-preserve',
-                '--no-check-md5', 's3://branchserve/mpistat/', './mpistat/'],
+                '--no-check-md5', '--delete-removed',
+                's3://branchserve/mpistat/', './mpistat/'],
                 check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 cwd=self.working_dir)
         except subprocess.CalledProcessError as error:

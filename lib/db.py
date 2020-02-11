@@ -70,7 +70,7 @@ def getGroups(jsonify):
     db.close()
 
     if jsonify:
-        # Hug automatically converts this to JSON for warden
+        # Hug automatically converts this to JSON for the API
         return groups
     else:
         tsv = "Group\tRAM needed\tTime to build"
