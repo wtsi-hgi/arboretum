@@ -50,8 +50,10 @@ def getGroups(jsonify):
     cursor = db.cursor()
 
     # TODO: decide where/when to query the instance for its IP
-    cursor.execute('''SELECT group_name, ram, time, prune_time, creation_time,
-        status FROM groups OUTER JOIN branches USING group_time''')
+    cursor.execute('''SELECT groups.group_name, groups.ram, groups.time,
+        branches.prune_time, branches.creation_time, branches.status
+        FROM groups LEFT OUTER JOIN branches 
+        ON groups.group_name = branches.group_name''')
 
     groups = []
 
