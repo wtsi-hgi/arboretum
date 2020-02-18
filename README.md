@@ -10,6 +10,7 @@ Python libraries:
  - `openstacksdk`
  - `service`
  - `hug`
+ - `gunicorn`
 
 `s3cmd` must be installed.
 
@@ -24,7 +25,7 @@ Arboretum has the following commands:
  - `update` - Fetch mpistat data from S3 and create a catalogue of available groups
  - `group` - Print a JSON dump of available groups and their statuses
 
- `api.py` is an API for some Arboretum functionality. Run it using `hug`: `hug -p [port] -f warden.py`. If the port argument is omitted, 8000 is used.
+ `api.py` is an API for some Arboretum functionality. Run it using `gunicorn`: `gunicorn -b 0.0.0.0:8000 api:__hug_wsgi__`.
   - `/groups` - JSON list of all available groups and their estimated system requirements
   - `/create?group=[group]` - Tell Arboretum to launch `[group]`'s Branchserve instance
   - `/destroy?group=[group]` - Tell Arboretum to destroy `[group]`'s Branchserve instance
