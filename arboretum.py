@@ -116,7 +116,7 @@ if __name__ == '__main__':
 
         if go:
             lifetime = verifyLifetime(" ".join(args.lifetime))
-            db.startInstance(args.group[0], lifetime)
+            db.startInstance(args.group[0], lifetime, "cli")
         else:
             print("Exiting.")
 

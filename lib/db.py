@@ -34,11 +34,30 @@ def initialiseDB():
     except sqlite3.OperationalError:
         pass
 
+    try:
+        cursor.execute('''CREATE TABLE info(name TEXT PRIMARY KEY,
+            value TEXT)''')
+        cursor.execute('''INSERT OR REPLACE INTO info
+            VALUES ("last_modified", datetime("now"))''')
+    except sqlite3.OperationalError:
+        pass
+
     db.commit()
     db.close()
 
     logger = logging.getLogger(LOGGER_NAME)
     logger.info("Using {} as SQLite database file.".format(DATABASE_NAME))
+
+def getLastModifiedTime():
+    db = sqlite3.connect(DATABASE_NAME)
+    cursor = db.cursor()
+
+    cursor.execute('''SELECT value FROM info WHERE name = "last_modified"''')
+    result = cursor.fetchone()[0]
+
+    db.close()
+
+    return result
 
 def getGroups(jsonify):
     """Returns list of groups saved in the database.
@@ -56,7 +75,7 @@ def getGroups(jsonify):
         ON groups.group_name = branches.group_name
         ORDER BY groups.group_name''')
 
-    groups = []
+    groups = {}
 
     for group in cursor:
         entry = {'group_name': group[0], 'ram': group[1],
@@ -65,7 +84,7 @@ def getGroups(jsonify):
         if entry['status'] != 'up':
             entry['status'] = 'down'
 
-        groups.append(entry)
+        groups[group[0]] = entry
 
     db.close()
 
@@ -79,20 +98,33 @@ def getGroups(jsonify):
                 group['group_name'], group['ram'], group['time'])
         return tsv
 
-def startInstance(group, lifetime):
+def startInstance(group, lifetime, caller):
+    if caller != "cli":
+        logger = logging.getLogger(caller)
+
     db = sqlite3.connect(DATABASE_NAME)
     cursor = db.cursor()
 
     cursor.execute('''SELECT * FROM branches WHERE group_name = ?''', (group,))
 
     if len(cursor.fetchall()) > 0:
-        print("Can't create {} instance, one already exists!".format(group))
+        if caller == "cli":
+            print("Can't create {} instance, one already exists!"
+                .format(group))
+        else:
+            logger.warning("Can't create {} instance, one already exists!"
+                .format(group))
         sys.exit(1)
 
     cursor.execute('''SELECT * FROM groups WHERE group_name = ?''', (group,))
 
     if len(cursor.fetchall()) == 0:
-        print("Can't create {} instance, group not recognised!".format(group))
+        if caller == "cli":
+            print("Can't create {} instance, group not recognised!"
+                .format(group))
+        else:
+            logger.warning("Can't create {} instance, group not recognised!"
+                .format(group))
         sys.exit(1)
 
     name = 'arboretum-{}-branch'.format(group)
@@ -130,15 +162,19 @@ def startInstance(group, lifetime):
             VALUES(?, ?, datetime("now", ?), ?, datetime("now"), ?)''',
             (group, info.private_v4, lifetime, info.id, "up"))
 
+    cursor.execute('''INSERT OR REPLACE INTO info
+        VALUES ("last_modified", datetime("now"))''')
+
     db.commit()
     db.close()
 
-    logger = logging.getLogger(LOGGER_NAME)
-    logger.info("Created new Treeserve instance:\n\tID: {}\n\t" \
-        "Group: {}\n\tLifetime: {}".format(info.id, group, lifetime))
+    if caller == "cli":
+        print("Created new Treeserve instance:\nID: {}\nGroup: {}\n" \
+            "Lifetime: {}".format(info.id, group, lifetime))
+    else:
+        logger.info("Created new Treeserve instance:\n\tID: {}\n\t" \
+            "Group: {}\n\tLifetime: {}".format(info.id, group, lifetime))
 
-    print("Created new Treeserve instance:\nID: {}\nGroup: {}\n" \
-        "Lifetime: {}".format(info.id, group, lifetime))
 
 def destroyInstance(group, caller):
     """ Destroys the instance for 'group'. The value of 'caller' is used to
@@ -189,6 +225,8 @@ def destroyInstance(group, caller):
             logger.warning("{} instance destroyed successfully.".format(group))
 
     cursor.execute('''DELETE FROM branches WHERE group_name = ?''', (group,))
+    cursor.execute('''INSERT OR REPLACE INTO info
+        VALUES ("last_modified", datetime("now"))''')
 
     db.commit()
     db.close()
@@ -217,7 +255,7 @@ def checkDB(name):
         return name
     # if the DB was only used by Arboretum, it will have a "branches" table
     # and nothing else
-    elif [('branches',), ('groups',)] == result:
+    elif [('branches',), ('groups',), ('info',)] == result:
         print("""
 Database file {} already exists. What do you want to do?
 

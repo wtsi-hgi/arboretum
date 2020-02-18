@@ -15,8 +15,12 @@ def getGroups():
 
 @hug.get('/create')
 def createInstance(group):
-    db.startInstance(group, "8 hours")
+    db.startInstance(group, "8 hours", "api")
 
 @hug.get('/destroy')
 def destroyInstance(group):
     db.destroyInstance(group, "api")
+
+@hug.get('/lastmodified')
+def getLastModifiedTime():
+    return db.getLastModifiedTime()
