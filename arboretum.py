@@ -12,7 +12,7 @@ import jinja2
 import service
 import openstack
 
-import lib.db as db
+import lib.instances as instances
 from lib.daemon import Arboretum
 from lib.logger import initLogger
 from lib.constants import DATABASE_NAME
@@ -65,7 +65,7 @@ def verifyLifetime(lifetime):
             "hours/days OR forever\nNote: [xyz] should be three digits " \
             "maximum.".format(lifetime))
 
-        sys.exit(1)
+        exit(1)
     else:
         return lifetime
 
@@ -84,8 +84,8 @@ if __name__ == '__main__':
                 "{}.".format(service.get_pid()))
             exit(1)
         else:
-            db.checkDB(DATABASE_NAME)
-            db.initialiseDB()
+            instances.checkDB(DATABASE_NAME)
+            instances.initialiseDB()
             service.start()
 
             time.sleep(1)
@@ -116,16 +116,15 @@ if __name__ == '__main__':
 
         if go:
             lifetime = verifyLifetime(" ".join(args.lifetime))
-            db.startInstance(args.group[0], lifetime, "cli")
+            instances.startInstance(args.group[0], lifetime, "cli")
         else:
             print("Exiting.")
 
     elif args.subparser == "destroy":
-        db.destroyInstance(args.group[0], "cli")
+        instances.destroyInstance(args.group[0], "cli")
 
     elif args.subparser == "update":
-        # signals daemon to run generateGroupDatabase()
-        service.send_signal(10)
+        instances.generateGroupDatabase("cli")
 
     elif args.subparser == "groups":
-        print(db.getGroups(True))
+        print(instances.getGroups(False))

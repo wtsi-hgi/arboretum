@@ -2,6 +2,10 @@ import logging
 import sqlite3
 import os
 import json
+import urllib.request
+import subprocess
+import re
+from pathlib import Path
 
 import jinja2
 import openstack
@@ -49,6 +53,8 @@ def initialiseDB():
     logger.info("Using {} as SQLite database file.".format(DATABASE_NAME))
 
 def getLastModifiedTime():
+    """Returns timestamp of last database update/insert as a formatted string
+    YYYY-MM-DD HH:mm:ss"""
     db = sqlite3.connect(DATABASE_NAME)
     cursor = db.cursor()
 
@@ -81,7 +87,7 @@ def getGroups(jsonify):
         entry = {'group_name': group[0], 'ram': group[1],
             'build_time': group[2], 'prune_time': group[3],
             'creation_time': group[4], 'status': group[5]}
-        if entry['status'] != 'up':
+        if entry['status'] == None:
             entry['status'] = 'down'
 
         groups[group[0]] = entry
@@ -93,12 +99,24 @@ def getGroups(jsonify):
         return groups
     else:
         tsv = "Group\tRAM needed\tTime to build"
-        for group in groups:
+        for group in groups.values():
             tsv += "\n{}\t{}\t{}".format(
                 group['group_name'], group['ram'], group['time'])
         return tsv
 
 def startInstance(group, lifetime, caller):
+    """Start a Treeserve instance.
+
+    @param group Name of the Unix group to start an instance for
+    @param lifetime String indicating how long the instance will stay up
+        before being automatically destroyed. For example: '8 hours',
+        '25 minutes', 'forever'
+    @param caller Either 'cli' or the name of a logger object. If 'cli',
+        output will be printed to stdout, if anything else caller will
+        be used as an argument to 'logging.getLogger()'
+    """
+    # this whole 'if caller != "cli"' thing feels ugly and redundant, but I'm
+    # not sure how else to do it
     if caller != "cli":
         logger = logging.getLogger(caller)
 
@@ -114,7 +132,7 @@ def startInstance(group, lifetime, caller):
         else:
             logger.warning("Can't create {} instance, one already exists!"
                 .format(group))
-        sys.exit(1)
+        exit(1)
 
     cursor.execute('''SELECT * FROM groups WHERE group_name = ?''', (group,))
 
@@ -125,7 +143,7 @@ def startInstance(group, lifetime, caller):
         else:
             logger.warning("Can't create {} instance, group not recognised!"
                 .format(group))
-        sys.exit(1)
+        exit(1)
 
     name = 'arboretum-{}-branch'.format(group)
     # TODO: implement process to estimate requirements for each group
@@ -149,18 +167,17 @@ def startInstance(group, lifetime, caller):
 
     # OpenStack takes its time allocating the IP, so info.private_v4 will most
     # likely be None here. It will be looked up again when necessary and
-    # cached in the database.
+    # saved in the database.
     if lifetime == "forever":
         cursor.execute('''INSERT INTO branches(group_name, instance_ip,
             prune_time, instance_id, creation_time, status)
             VALUES(?, ?, ?, ?, datetime("now"), ?)''',
-            (group, info.private_v4, "never", info.id, "up"))
-            # TODO: 'status' should go from 'building' to 'up'
+            (group, info.private_v4, "never", info.id, "building"))
     else:
         cursor.execute('''INSERT INTO branches(group_name, instance_ip,
             prune_time, instance_id, creation_time, status)
             VALUES(?, ?, datetime("now", ?), ?, datetime("now"), ?)''',
-            (group, info.private_v4, lifetime, info.id, "up"))
+            (group, info.private_v4, lifetime, info.id, "building"))
 
     cursor.execute('''INSERT OR REPLACE INTO info
         VALUES ("last_modified", datetime("now"))''')
@@ -175,8 +192,134 @@ def startInstance(group, lifetime, caller):
         logger.info("Created new Treeserve instance:\n\tID: {}\n\t" \
             "Group: {}\n\tLifetime: {}".format(info.id, group, lifetime))
 
+def updateBuildingInstances(db_name=DATABASE_NAME):
+    # will probably only ever be called by the daemon
+    logger = logging.getLogger("daemon")
+    db = sqlite3.connect(db_name)
+    cursor = db.cursor()
 
-def destroyInstance(group, caller):
+    cursor.execute('''SELECT group_name, instance_ip FROM branches
+        WHERE status = "building"''')
+
+    conn = openstack.connect(cloud='openstack')
+
+    for branch in cursor:
+        # try to find IP address if not recorded already
+        if branch[1] == "":
+            logger.info("Try to find IP for {}...".format(branch[0]))
+            info = conn.get_server("arboretum-{}-branch"
+                .format(branch[0]))
+
+            if info is None:
+                logger.info("Instance not ready.")
+                continue
+
+            if info.private_v4 == "":
+                logger.info("No IP assigned yet.")
+                continue
+
+            cursor.execute('''UPDATE branches
+                SET instance_ip = ?
+                WHERE group_name = ?''', (info.private_v4, branch[0]))
+            db.commit()
+            logger.info("IP found successfully.")
+
+        # use IP address to ping instance and find whether Treeserve is done
+        if branch[1] != "":
+            logger.info("Checking if {} is ready...".format(branch[0]))
+            try:
+                urllib.request.urlopen(
+                    "http://{}:8080/api/v2".format(branch[1]))
+
+                # if there's no error, Treeserve is ready
+                cursor.execute('''UPDATE branches
+                    SET status = "up"
+                    WHERE group_name = ?''', (branch[0],))
+
+                cursor.execute('''INSERT OR REPLACE INTO info
+                    VALUES ("last_modified", datetime("now"))''')
+                db.commit()
+                logger.info("Ready.")
+
+            except urllib.error.URLError as e:
+                if str(e) == "<urlopen error [Errno 111] Connection refused>":
+                    logger.info("Treeserve not finished.")
+                else:
+                    raise e
+
+    conn.close()
+    db.close()
+
+def generateGroupDatabase(caller):
+    """Fetches mpistat chunks from S3 and creates a catalogue of
+    available groups and estimates for their RAM and time requirements.
+    """
+    if caller != "cli":
+        logger = logging.getLogger(caller)
+        logger.info("Running s3cmd sync.")
+    else:
+        print("Running s3cmd sync.")
+
+    try:
+        # FIXME: this seems to randomly fail whenever trying to sync new
+        # files to a directory which has already been synced before.
+        # Seems to work if it's re-run a few times though
+        output = subprocess.run(['s3cmd', 'sync', '--no-preserve',
+            '--no-check-md5', '--delete-removed',
+            's3://branchserve/mpistat/', './mpistat/'],
+            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except subprocess.CalledProcessError as error:
+        if caller != "cli":
+            logger.critical("s3cmd call failed!\n{}: {}"
+                .format(type(error), error))
+        else:
+            print("s3cmd call failed!\n{}: {}".format(type(error), error))
+        return
+
+    if caller != "cli":
+        logger.info("s3cmd sync complete.")
+        logger.debug("s3cmd sync output: {}"
+            .format(output.stdout.decode("UTF-8")))
+    else:
+        print("s3cmd sync complete.")
+
+    group_files = os.listdir(Path(os.getcwd()) / "mpistat")
+
+    extension = re.compile('\.dat\.gz$')
+
+    db = sqlite3.connect(DATABASE_NAME)
+    cursor = db.cursor()
+
+    # existing groups aren't relevant, for simplicity's sake we can just
+    # nuke the groups table and populate it from scratch
+    cursor.execute('''DELETE FROM groups''')
+    # removes file extensions to get list of available groups
+    for file in group_files:
+        if extension.search(file):
+            _name = extension.sub("", file)
+            cursor.execute('''INSERT INTO groups(group_name, ram, time)
+                VALUES(?,?,?)''', (_name, "0GB", "0 minutes"))
+
+            db.commit()
+        else:
+            if caller != "cli":
+                logger.warning("File {} found in mpistat chunk " \
+                    "directory, doesn't have '.dat.gz' extension!"
+                    .format(file))
+            else:
+                print("File {} found in mpistat chunk directory, doesn't" \
+                    "have '.dat.gz' extension!".format(file))
+
+    if caller != "cli":
+        logger.info("Group database generated successfully.")
+    else:
+        print("Group database generated successfully.")
+    db.close()
+    # TODO: properly estimate requirements, schedule it based on new data
+    # going into S3
+
+
+def destroyInstance(group, caller, db_name=DATABASE_NAME):
     """ Destroys the instance for 'group'. The value of 'caller' is used to
     decide how to log messages.
 
@@ -186,7 +329,7 @@ def destroyInstance(group, caller):
     if caller != "cli":
         logger = logging.getLogger(caller)
 
-    db = sqlite3.connect(DATABASE_NAME)
+    db = sqlite3.connect(db_name)
     cursor = db.cursor()
 
     cursor.execute('''SELECT group_name, instance_id FROM branches WHERE
@@ -246,7 +389,7 @@ def checkDB(name):
     except sqlite3.DatabaseError:
         print("{} not recognised as a database file. Please delete or move " \
             "the file and try again.".format(name))
-        sys.exit(1)
+        exit(1)
 
     result = cursor.fetchall()
 
@@ -277,7 +420,7 @@ Database file {} already exists. What do you want to do?
             return name
         else:
             print("Exiting...")
-            sys.exit()
+            exit()
     else:
         print("""
 File {} already exists and appears to be an unrecognised SQLite
@@ -296,4 +439,4 @@ database. Do you want to overwrite the file?
             return name
         else:
             print("Please move or rename the file and start Arboretum again.")
-            sys.exit()
+            exit()

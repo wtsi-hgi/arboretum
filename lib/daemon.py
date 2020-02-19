@@ -10,7 +10,7 @@ import jinja2
 import service
 import openstack
 
-from . import db
+from . import instances
 from .constants import DATABASE_NAME
 from .logger import initLogger
 
@@ -33,11 +33,10 @@ class Arboretum(service.Service):
 
     def run(self):
         while not self.got_sigterm():
-            if self.got_signal(10):
-                self.clear_signal(10)
-                self.generateGroupDatabase()
             time.sleep(2)
+            # replace this with timed threads/processes
             self.pruneExpiredInstances()
+            instances.updateBuildingInstances(self.db_path)
 
     def pruneExpiredInstances(self):
         db = sqlite3.connect(self.db_path)
@@ -50,58 +49,6 @@ class Arboretum(service.Service):
             self.logger.info("{} instance has expired.\n\tPrune time: {}"
                 .format(result[1], result[2]))
 
-            db.destroyInstance(result[1], "daemon")
+            instances.destroyInstance(result[1], "daemon", db_name=self.db_path)
 
         db.close()
-
-    def generateGroupDatabase(self):
-        """Fetches mpistat chunks from S3 and creates a catalogue of
-        available groups and estimates for their RAM and time requirements.
-        """
-        self.logger.info("Running s3cmd sync.")
-
-        try:
-            # FIXME: this seems to randomly fail whenever trying to sync new
-            # files to a directory which has already been synced before.
-            # Seems to work if it's re-run a few times though
-            output = subprocess.run(['s3cmd', 'sync', '--no-preserve',
-                '--no-check-md5', '--delete-removed',
-                's3://branchserve/mpistat/', './mpistat/'],
-                check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                cwd=self.working_dir)
-        except subprocess.CalledProcessError as error:
-            self.logger.critical("s3cmd call failed!\n{}: {}"
-                .format(type(error), error))
-            return
-
-        self.logger.info("s3cmd sync complete.")
-        self.logger.debug("s3cmd sync output: {}"
-            .format(output.stdout.decode("UTF-8")))
-
-        group_files = os.listdir(Path(self.working_dir) / "mpistat")
-
-        extension = re.compile('\.dat\.gz$')
-
-        db = sqlite3.connect(self.db_path)
-        cursor = db.cursor()
-
-        # existing groups aren't relevant, for simplicity's sake we can just
-        # nuke the groups table and populate it from scratch
-        cursor.execute('''DELETE FROM groups''')
-        # removes file extensions to get list of available groups
-        for file in group_files:
-            if extension.search(file):
-                _name = extension.sub("", file)
-                cursor.execute('''INSERT INTO groups(group_name, ram, time)
-                    VALUES(?,?,?)''', (_name, "0GB", "0 minutes"))
-
-                db.commit()
-            else:
-                self.logger.warning("File {} found in mpistat chunk " \
-                    "directory, doesn't have '.dat.gz' extension!"
-                    .format(file))
-
-        self.logger.info("Group database generated successfully.")
-        db.close()
-        # TODO: properly estimate requirements, schedule it based on new data
-        # going into S3
