@@ -1,10 +1,10 @@
 import logging
 import time
-import subprocess
 import os
 import sqlite3
 import re
 from pathlib import Path
+from multiprocessing import Process, Event
 
 import jinja2
 import service
@@ -32,11 +32,32 @@ class Arboretum(service.Service):
         self.db_path = str(self.db_path)
 
     def run(self):
+        exit_event = Event()
+        self.logger.info("Starting daemon management processes.")
+        prune_process = Process(target=self.pruneLoop, args=(exit_event,))
+        update_process = Process(target=self.updateLoop, args=(exit_event,))
+
+        prune_process.start()
+        update_process.start()
+
         while not self.got_sigterm():
-            time.sleep(2)
-            # replace this with timed threads/processes
+            time.sleep(1)
+
+        self.logger.info("Terminating daemon management processes.")
+        exit_event.set()
+        prune_process.join()
+        update_process.join()
+        self.logger.info("Exiting.")
+
+    def pruneLoop(self, exit_event):
+        while not exit_event.is_set():
             self.pruneExpiredInstances()
+            time.sleep(2)
+
+    def updateLoop(self, exit_event):
+        while not exit_event.is_set():
             instances.updateBuildingInstances(self.db_path)
+            time.sleep(5)
 
     def pruneExpiredInstances(self):
         db = sqlite3.connect(self.db_path)
