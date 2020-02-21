@@ -65,7 +65,7 @@ def getLastModifiedTime():
 
     return result
 
-def getGroups(jsonify):
+def getGroups(jsonify, active_only=False):
     """Returns list of groups saved in the database.
 
     @param jsonify If True, returns list object. If False, returns
@@ -76,7 +76,8 @@ def getGroups(jsonify):
 
     # TODO: decide where/when to query the instance for its IP
     cursor.execute('''SELECT groups.group_name, groups.ram, groups.time,
-        branches.prune_time, branches.creation_time, branches.status
+        branches.prune_time, branches.creation_time, branches.status,
+        branches.instance_ip
         FROM groups LEFT OUTER JOIN branches
         ON groups.group_name = branches.group_name
         ORDER BY groups.group_name''')
@@ -86,11 +87,15 @@ def getGroups(jsonify):
     for group in cursor:
         entry = {'group_name': group[0], 'ram': group[1],
             'build_time': group[2], 'prune_time': group[3],
-            'creation_time': group[4], 'status': group[5]}
+            'creation_time': group[4], 'status': group[5],
+            'instance_ip': group[6]}
         if entry['status'] == None:
             entry['status'] = 'down'
 
-        groups[group[0]] = entry
+        if active_only and entry['status'] != 'down':
+            groups[group[0]] = entry
+        else:
+            groups[group[0]] = entry
 
     db.close()
 

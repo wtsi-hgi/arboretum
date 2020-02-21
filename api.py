@@ -13,6 +13,10 @@ initLogger(LOGGER_NAME, "API")
 def getGroups():
     return instances.getGroups(True)
 
+@hug.get('/activegroups')
+def getActiveGroups():
+    return instances.getGroups(True, active_only=True)
+
 @hug.get('/create')
 def createInstance(group):
     instances.startInstance(group, "8 hours", "api")
