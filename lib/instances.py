@@ -150,9 +150,12 @@ def startInstance(group, lifetime, caller):
                 .format(group))
         exit(1)
 
-    cursor.execute('''SELECT * FROM groups WHERE group_name = ?''', (group,))
+    cursor.execute('''SELECT group_name, ram
+        FROM groups WHERE group_name = ?''', (group,))
 
-    if len(cursor.fetchall()) == 0:
+    result = cursor.fetchall()[0]
+
+    if len(result) == 0:
         if caller == "cli":
             print("Can't create {} instance, group not recognised!"
                 .format(group))
@@ -161,16 +164,35 @@ def startInstance(group, lifetime, caller):
                 .format(group))
         exit(1)
 
+
+    conn = openstack.connect(cloud='openstack')
+
     name = 'arboretum-{}-branch'.format(group)
-    # TODO: implement process to estimate requirements for each group
-    flavor = 'm2.small'
+
+    gib = 1024**3
+    mib = 1024**2
+
+    # extra GiB is added on top as headroom for system processes
+    ram = int(result[1]) + gib
+
+    # Defaults to using m1.small for groups requiring less than 14GiB of RAM
+    # that way every instance has at least two cores
+    if ram < 14*gib:
+        flavor = 'm1.small'
+    else:
+        ram_mb = ram / mib
+        # include="m" stops high core count o2 flavours from being used
+        try:
+            flavor = conn.get_flavor_by_ram(ram_mb, include="m").name
+        except openstack.exceptions.SDKException:
+            # SDKException will be thrown when no matching flavour is found,
+            # then we try to get an s2 flavour instead
+            flavor = conn.get_flavor_by_ram(ram_mb, include="s2").name
 
     jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(''))
     template = jinja_env.get_template('user.sh')
 
     userdata = template.render(group_name = group)
-
-    conn = openstack.connect(cloud='openstack')
 
     info = conn.create_server(name=name,
         image='hgi-branchserve-host',
