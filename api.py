@@ -26,5 +26,5 @@ def destroyInstance(group):
     instances.destroyInstance(group, "api")
 
 @hug.get('/lastmodified')
-def getLastModifiedTime():
-    return instances.getLastModifiedTime()
+def getStamp():
+    return instances.getStamp()

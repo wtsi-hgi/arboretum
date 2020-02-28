@@ -5,6 +5,8 @@ import json
 import urllib.request
 import subprocess
 import re
+import random
+import math
 from pathlib import Path
 
 import jinja2
@@ -13,6 +15,7 @@ import openstack
 from .constants import DATABASE_NAME
 
 LOGGER_NAME = "cli"
+RANDOM_RANGE = {'a':0, 'b':999999999999}
 
 def initialiseDB():
     db = sqlite3.connect(DATABASE_NAME)
@@ -42,7 +45,7 @@ def initialiseDB():
         cursor.execute('''CREATE TABLE info(name TEXT PRIMARY KEY,
             value TEXT)''')
         cursor.execute('''INSERT OR REPLACE INTO info
-            VALUES ("last_modified", datetime("now"))''')
+            VALUES ("stamp", ?)''', (random.randint(**RANDOM_RANGE),))
     except sqlite3.OperationalError:
         pass
 
@@ -52,18 +55,26 @@ def initialiseDB():
     logger = logging.getLogger(LOGGER_NAME)
     logger.info("Using {} as SQLite database file.".format(DATABASE_NAME))
 
-def getLastModifiedTime():
-    """Returns timestamp of last database update/insert as a formatted string
-    YYYY-MM-DD HH:mm:ss"""
+def getStamp():
+    """Returns integer stamp that changes after every database change"""
     db = sqlite3.connect(DATABASE_NAME)
     cursor = db.cursor()
 
-    cursor.execute('''SELECT value FROM info WHERE name = "last_modified"''')
+    cursor.execute('''SELECT value FROM info WHERE name = "stamp"''')
     result = cursor.fetchone()[0]
 
     db.close()
 
     return result
+
+def modifyStamp(db):
+    """Change stamp to a new random integer"""
+    cursor = db.cursor()
+
+    cursor.execute('''INSERT OR REPLACE INTO info
+        VALUES ("stamp", ?)''', (random.randint(**RANDOM_RANGE),))
+
+    db.commit()
 
 def getGroups(jsonify, active_only=False):
     """Returns list of groups saved in the database.
@@ -184,8 +195,7 @@ def startInstance(group, lifetime, caller):
             VALUES(?, ?, datetime("now", ?), ?, datetime("now"), ?)''',
             (group, info.private_v4, lifetime, info.id, "building"))
 
-    cursor.execute('''INSERT OR REPLACE INTO info
-        VALUES ("last_modified", datetime("now"))''')
+    modifyStamp(db)
 
     db.commit()
     db.close()
@@ -241,8 +251,7 @@ def updateBuildingInstances(db_name=DATABASE_NAME):
                     SET status = "up"
                     WHERE group_name = ?''', (branch[0],))
 
-                cursor.execute('''INSERT OR REPLACE INTO info
-                    VALUES ("last_modified", datetime("now"))''')
+                modifyStamp(db)
                 db.commit()
                 logger.info("Ready.")
 
@@ -261,36 +270,29 @@ def generateGroupDatabase(caller):
     """
     if caller != "cli":
         logger = logging.getLogger(caller)
-        logger.info("Running s3cmd sync.")
+        logger.info("Updating group database...")
     else:
-        print("Running s3cmd sync.")
+        print("Updating group database...")
 
     try:
-        # FIXME: this seems to randomly fail whenever trying to sync new
-        # files to a directory which has already been synced before.
-        # Seems to work if it's re-run a few times though
-        output = subprocess.run(['s3cmd', 'sync', '--no-preserve',
-            '--no-check-md5', '--delete-removed',
-            's3://branchserve/mpistat/', './mpistat/'],
+        output = subprocess.run(['s3cmd', 'get', '-f',
+            's3://branchserve/mpistat/index.txt', '.'],
             check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except subprocess.CalledProcessError as error:
         if caller != "cli":
             logger.critical("s3cmd call failed!\n{}: {}"
                 .format(type(error), error))
         else:
-            print("s3cmd call failed!\n{}: {}".format(type(error), error))
+            print("s3cmd call failed!")
+            raise error
         return
 
     if caller != "cli":
-        logger.info("s3cmd sync complete.")
-        logger.debug("s3cmd sync output: {}"
+        logger.info("Index fetch complete.")
+        logger.debug("s3cmd get output: {}"
             .format(output.stdout.decode("UTF-8")))
     else:
-        print("s3cmd sync complete.")
-
-    group_files = os.listdir(Path(os.getcwd()) / "mpistat")
-
-    extension = re.compile('\.dat\.gz$')
+        print("Index fetch complete.")
 
     db = sqlite3.connect(DATABASE_NAME)
     cursor = db.cursor()
@@ -298,31 +300,29 @@ def generateGroupDatabase(caller):
     # existing groups aren't relevant, for simplicity's sake we can just
     # nuke the groups table and populate it from scratch
     cursor.execute('''DELETE FROM groups''')
-    # removes file extensions to get list of available groups
-    for file in group_files:
-        if extension.search(file):
-            _name = extension.sub("", file)
+    with open("index.txt", "rt") as index:
+        # skip the header
+        index.readline()
+        for line in index:
+            _name, _time, _ram = line.split()
+
+            _time = math.ceil(float(_time)/60)
+            if _time == 1:
+                _human_time = "1 minute"
+            else:
+                _human_time = "{} minutes".format(_time)
+
             cursor.execute('''INSERT INTO groups(group_name, ram, time)
-                VALUES(?,?,?)''', (_name, "0GB", "0 minutes"))
+                VALUES(?,?,?)''', (_name, _ram, _human_time))
 
             db.commit()
-        else:
-            if caller != "cli":
-                logger.warning("File {} found in mpistat chunk " \
-                    "directory, doesn't have '.dat.gz' extension!"
-                    .format(file))
-            else:
-                print("File {} found in mpistat chunk directory, doesn't" \
-                    "have '.dat.gz' extension!".format(file))
 
     if caller != "cli":
         logger.info("Group database generated successfully.")
     else:
         print("Group database generated successfully.")
-    db.close()
-    # TODO: properly estimate requirements, schedule it based on new data
-    # going into S3
 
+    db.close()
 
 def destroyInstance(group, caller, db_name=DATABASE_NAME):
     """ Destroys the instance for 'group'. The value of 'caller' is used to
@@ -373,8 +373,7 @@ def destroyInstance(group, caller, db_name=DATABASE_NAME):
             logger.warning("{} instance destroyed successfully.".format(group))
 
     cursor.execute('''DELETE FROM branches WHERE group_name = ?''', (group,))
-    cursor.execute('''INSERT OR REPLACE INTO info
-        VALUES ("last_modified", datetime("now"))''')
+    modifyStamp(db)
 
     db.commit()
     db.close()
