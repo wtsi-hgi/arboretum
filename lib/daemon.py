@@ -65,7 +65,12 @@ class Arboretum(service.Service):
     def updateGroupsLoop(self, exit_event):
         while not exit_event.is_set():
             instances.generateGroupDatabase("daemon")
-            time.sleep(3600) # 1 hour
+            # sleep for an hour, waking up every two seconds so that the daemon
+            # takes less than an hour to terminate in the worst case
+            time = 0
+            while time < 3600:
+                time.sleep(2)
+                time += 2
 
     def pruneExpiredInstances(self):
         db = sqlite3.connect(self.db_path)
