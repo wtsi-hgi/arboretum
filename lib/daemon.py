@@ -36,9 +36,11 @@ class Arboretum(service.Service):
         self.logger.info("Starting daemon management processes.")
         prune_process = Process(target=self.pruneLoop, args=(exit_event,))
         update_process = Process(target=self.updateLoop, args=(exit_event,))
+        group_loop = Process(target=self.updateGroupsLoop, args=(exit_event,))
 
         prune_process.start()
         update_process.start()
+        group_loop.start()
 
         while not self.got_sigterm():
             time.sleep(1)
@@ -47,6 +49,7 @@ class Arboretum(service.Service):
         exit_event.set()
         prune_process.join()
         update_process.join()
+        group_loop.join()
         self.logger.info("Exiting.")
 
     def pruneLoop(self, exit_event):
@@ -58,6 +61,11 @@ class Arboretum(service.Service):
         while not exit_event.is_set():
             instances.updateBuildingInstances(self.db_path)
             time.sleep(5)
+
+    def updateGroupsLoop(self, exit_event):
+        while not exit_event.is_set():
+            instances.generateGroupDatabase("daemon")
+            time.sleep(3600) # 1 hour
 
     def pruneExpiredInstances(self):
         db = sqlite3.connect(self.db_path)
