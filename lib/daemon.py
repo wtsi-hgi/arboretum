@@ -34,22 +34,29 @@ class Arboretum(service.Service):
     def run(self):
         exit_event = Event()
         self.logger.info("Starting daemon management processes.")
-        prune_process = Process(target=self.pruneLoop, args=(exit_event,))
-        update_process = Process(target=self.updateLoop, args=(exit_event,))
-        group_loop = Process(target=self.updateGroupsLoop, args=(exit_event,))
+        processes = {}
+        processes['prune_process'] = Process(
+            target=self.pruneLoop, args=(exit_event,))
+        processes['update_process'] = Process(
+            target=self.updateLoop, args=(exit_event,))
+        processes['group_loop'] = Process(
+            target=self.updateGroupsLoop, args=(exit_event,))
 
-        prune_process.start()
-        update_process.start()
-        group_loop.start()
+        for process in processes.values():
+            process.start()
 
         while not self.got_sigterm():
             time.sleep(1)
+            # A crashed process will only have its exception raised on a join
+            for process in processes.values():
+                if not process.is_alive():
+                    process.join()
 
         self.logger.info("Terminating daemon management processes.")
         exit_event.set()
-        prune_process.join()
-        update_process.join()
-        group_loop.join()
+
+        for process in processes.values():
+            process.join()
         self.logger.info("Exiting.")
 
     def pruneLoop(self, exit_event):
@@ -67,10 +74,10 @@ class Arboretum(service.Service):
             instances.generateGroupDatabase("daemon")
             # sleep for an hour, waking up every two seconds so that the daemon
             # takes less than an hour to terminate in the worst case
-            time = 0
-            while time < 3600:
+            count = 0
+            while count < 3600:
                 time.sleep(2)
-                time += 2
+                count += 2
 
     def pruneExpiredInstances(self):
         db = sqlite3.connect(self.db_path)
