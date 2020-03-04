@@ -36,21 +36,27 @@ class Arboretum(service.Service):
         self.logger.info("Starting daemon management processes.")
         processes = {}
         processes['prune_process'] = Process(
-            target=self.pruneLoop, args=(exit_event,))
+            target=self.pruneLoop, args=(exit_event,), daemon=True)
         processes['update_process'] = Process(
-            target=self.updateLoop, args=(exit_event,))
+            target=self.updateLoop, args=(exit_event,), daemon=True)
         processes['group_loop'] = Process(
-            target=self.updateGroupsLoop, args=(exit_event,))
+            target=self.updateGroupsLoop, args=(exit_event,), daemon=True)
 
         for process in processes.values():
             process.start()
 
         while not self.got_sigterm():
             time.sleep(1)
-            # A crashed process will only have its exception raised on a join
-            for process in processes.values():
-                if not process.is_alive():
-                    process.join()
+            # Test for crashed processes, will crash silently otherwise
+            dead_procs = []
+            for process in processes.keys():
+                if not processes[process].is_alive():
+                    self.logger.critical("Process {} has died!"
+                        .format(process))
+                    dead_procs.append(process)
+
+            for process in dead_procs:
+                processes.pop(process)
 
         self.logger.info("Terminating daemon management processes.")
         exit_event.set()
@@ -71,11 +77,13 @@ class Arboretum(service.Service):
 
     def updateGroupsLoop(self, exit_event):
         while not exit_event.is_set():
-            instances.generateGroupDatabase("daemon")
+            instances.generateGroupDatabase("daemon", db_name=self.db_path)
             # sleep for an hour, waking up every two seconds so that the daemon
             # takes less than an hour to terminate in the worst case
             count = 0
             while count < 3600:
+                if exit_event.is_set():
+                    break
                 time.sleep(2)
                 count += 2
 

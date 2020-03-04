@@ -116,8 +116,8 @@ def getGroups(jsonify, active_only=False):
     else:
         tsv = "Group\tRAM needed\tTime to build"
         for group in groups.values():
-            tsv += "\n{}\t{}\t{}".format(
-                group['group_name'], group['ram'], group['time'])
+            tsv += "\n{}\t{:,} bytes\t{}".format(
+                group['group_name'], group['ram'], group['build_time'])
         return tsv
 
 def startInstance(group, lifetime, caller):
@@ -286,7 +286,7 @@ def updateBuildingInstances(db_name=DATABASE_NAME):
     conn.close()
     db.close()
 
-def generateGroupDatabase(caller):
+def generateGroupDatabase(caller, db_name=DATABASE_NAME):
     """Fetches mpistat chunks from S3 and creates a catalogue of
     available groups and estimates for their RAM and time requirements.
     """
@@ -298,7 +298,7 @@ def generateGroupDatabase(caller):
 
     try:
         output = subprocess.run(['s3cmd', 'get', '-f',
-            's3://branchserve/mpistat/index.txt', '.'],
+            's3://branchserve/mpistat/index.txt', '/tmp/index.txt'],
             check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except subprocess.CalledProcessError as error:
         if caller != "cli":
@@ -316,13 +316,15 @@ def generateGroupDatabase(caller):
     else:
         print("Index fetch complete.")
 
-    db = sqlite3.connect(DATABASE_NAME)
+    db = sqlite3.connect(db_name)
     cursor = db.cursor()
 
     # existing groups aren't relevant, for simplicity's sake we can just
     # nuke the groups table and populate it from scratch
     cursor.execute('''DELETE FROM groups''')
-    with open("index.txt", "rt") as index:
+    if caller != "cli":
+        logger.info("Opening file...")
+    with open("/tmp/index.txt", "rt") as index:
         # skip the header
         index.readline()
         for line in index:
