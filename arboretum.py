@@ -7,9 +7,9 @@ import os
 import sys
 import subprocess
 import re
+import socket
 
 import jinja2
-import service
 import openstack
 
 import lib.instances as instances
@@ -30,11 +30,10 @@ parser_stop = subparsers.add_parser('stop',
     help="Stop the Arboretum demon")
 
 parser_status = subparsers.add_parser('status',
+    help="Print daemon status to stdout.")
+
+parser_active = subparsers.add_parser('active',
     help="Print status of active instances to stdout.")
-parser_status.add_argument('--tojson', dest='tojson', action='store_const',
-    const=True, default=False, help="Format output as JSON.")
-parser_status.add_argument('--totsv', dest='totsv', action='store_const',
-    const=True, default=False, help="Format output as TSV.")
 
 parser_instantiate = subparsers.add_parser('create',
     help="Create a new Branchserve instance on OpenStack")
@@ -57,7 +56,6 @@ parser_update = subparsers.add_parser('update',
 parser_groups = subparsers.add_parser('groups',
     help="Print a list of available groups and their requirements.")
 
-
 def verifyLifetime(lifetime):
     """Syntax checker for the 'lifetime' argument."""
     if re.search("(^\d{1,3} (minutes?|hours?|days?)$)|(^forever$)", lifetime) is None:
@@ -68,6 +66,19 @@ def verifyLifetime(lifetime):
         exit(1)
     else:
         return lifetime
+
+def getDaemonStatus():
+    service = Arboretum(os.path.abspath(''), 'arboretum', pid_dir='/tmp',
+        signals=[10])
+
+    if service.is_running():
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.connect(('127.0.0.1', 4510))
+            sock.send(b'status')
+            data = sock.recv(1024)
+        return data.decode("UTF-8")
+    else:
+        return "down"
 
 if __name__ == '__main__':
     initLogger(LOGGER_NAME, "CLI")
@@ -97,7 +108,9 @@ if __name__ == '__main__':
 
     elif args.subparser == "stop":
         if not service.is_running():
-            print("Error: Arboretum daemon is not running.")
+            print("Error: Arboretum daemon is not running. If you think it " \
+                "should be, check the 'arboretum.log' file to see if/why " \
+                "it crashed.")
             exit(1)
         else:
             service.stop()
@@ -120,6 +133,15 @@ if __name__ == '__main__':
         else:
             print("Exiting.")
 
+    elif args.subparser == "status":
+        if service.is_running():
+            print("Running. Status:")
+            _status = getDaemonStatus()
+            for line in _status.split():
+                print("- {}".format(line))
+        else:
+            print("Inactive.")
+
     elif args.subparser == "destroy":
         instances.destroyInstance(args.group[0], "cli")
 
@@ -128,3 +150,6 @@ if __name__ == '__main__':
 
     elif args.subparser == "groups":
         print(instances.getGroups(False))
+
+    elif args.subparser == "active":
+        print(instances.getGroups(False, active_only=True))

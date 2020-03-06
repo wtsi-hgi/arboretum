@@ -105,7 +105,8 @@ def getGroups(jsonify, active_only=False):
 
         if active_only and entry['status'] != 'down':
             groups[group[0]] = entry
-        else:
+
+        if not active_only:
             groups[group[0]] = entry
 
     db.close()
@@ -117,7 +118,7 @@ def getGroups(jsonify, active_only=False):
         tsv = "Group\tRAM needed\tTime to build"
         for group in groups.values():
             tsv += "\n{}\t{:,} bytes\t{}".format(
-                group['group_name'], group['ram'], group['build_time'])
+                group['group_name'], int(group['ram']), group['build_time'])
         return tsv
 
 def startInstance(group, lifetime, caller):
