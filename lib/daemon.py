@@ -42,14 +42,16 @@ class Arboretum(service.Service):
 
                 exit_event = Event()
                 self.logger.info("Starting daemon management processes.")
+
+                process_map = {'prune_process': self.pruneLoop,
+                    'instance_update_process': self.updateLoop,
+                    'group_update_process': self.updateGroupsLoop}
+
                 processes = {}
-                processes['prune_process'] = Process(
-                    target=self.pruneLoop, args=(exit_event,), daemon=True)
-                processes['instance_update_process'] = Process(
-                    target=self.updateLoop, args=(exit_event,), daemon=True)
-                processes['group_update_process'] = Process(
-                    target=self.updateGroupsLoop, args=(exit_event,),
-                    daemon=True)
+                for process_name in process_map.keys():
+                    processes[process_name] = Process(
+                        target=process_map[process_name],
+                        args=(exit_event,), daemon=True)
 
                 process_health = {}
 
@@ -81,6 +83,14 @@ class Arboretum(service.Service):
 
                     for process in dead_procs:
                         processes.pop(process)
+                        # start a new process of the same type
+                        replacement = Process(target=process_map[process],
+                            args=(exit_event,), daemon=True)
+                        replacement.start()
+                        processes[process] = replacement
+                        process_health[process] = "up"
+                        self.logger.critical("Process {} has been revived."
+                            .format(process))
 
                 sock.close()
 
