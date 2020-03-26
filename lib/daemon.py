@@ -61,6 +61,7 @@ class Arboretum(service.Service):
 
                 while not self.got_sigterm():
                     try:
+                        # blocking socket with a second-long time out
                         conn, addr = sock.accept()
                         data = conn.recv(1024)
                         if data:
@@ -76,8 +77,8 @@ class Arboretum(service.Service):
                     dead_procs = []
                     for process in processes.keys():
                         if not processes[process].is_alive():
-                            self.logger.critical("Process {} has died!"
-                                .format(process))
+                            self.logger.critical("CRITICAL: Process {}" \
+                                "has died".format(process))
                             process_health[process] = "down"
                             dead_procs.append(process)
 
