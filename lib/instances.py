@@ -149,7 +149,7 @@ def startInstance(group, lifetime, caller):
         else:
             logger.warning("Can't create {} instance, one already exists!"
                 .format(group))
-        exit(1)
+        return False
 
     cursor.execute('''SELECT group_name, ram
         FROM groups WHERE group_name = ?''', (group,))
@@ -163,7 +163,7 @@ def startInstance(group, lifetime, caller):
         else:
             logger.warning("Can't create {} instance, group not recognised!"
                 .format(group))
-        exit(1)
+        return False
 
 
     conn = openstack.connect(cloud='openstack')
