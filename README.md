@@ -1,6 +1,3 @@
-THIS PROGRAM IS NOT YET FULLY FUNCTIONAL
-========================================
-
 # Arboretum
 Arboretum helps automate the creation, destruction, and monitoring of [Branchserve](https://github.com/wtsi-hgi/branchserve) instances. A web frontend called [Warden](https://github.com/wtsi-hgi/warden) is available.
 
