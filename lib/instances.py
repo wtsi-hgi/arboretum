@@ -18,6 +18,9 @@ LOGGER_NAME = "cli"
 RANDOM_RANGE = {'a':0, 'b':999999999999}
 
 def initialiseDB():
+    """
+    Initialise the database by creating the SQL tables if not present already
+    """
     db = sqlite3.connect(DATABASE_NAME)
     cursor = db.cursor()
 
@@ -56,7 +59,14 @@ def initialiseDB():
     logger.info("Using {} as SQLite database file.".format(DATABASE_NAME))
 
 def getStamp():
-    """Returns integer stamp that changes after every database change"""
+    """
+    Returns integer stamp that changes after every database change
+
+    Returns
+    -------
+    result
+        The value of the stamp, the first column in the row extracted
+    """
     db = sqlite3.connect(DATABASE_NAME)
     cursor = db.cursor()
 
@@ -68,7 +78,14 @@ def getStamp():
     return result
 
 def modifyStamp(db):
-    """Change stamp to a new random integer"""
+    """
+    Change stamp to a new random integer
+
+    Parameters
+    ----------
+    db
+        The SQL database
+    """
     cursor = db.cursor()
 
     cursor.execute('''INSERT OR REPLACE INTO info
@@ -77,10 +94,21 @@ def modifyStamp(db):
     db.commit()
 
 def getGroups(jsonify, active_only=False):
-    """Returns list of groups saved in the database.
+    """
+    Returns list of groups saved in the database.
 
-    @param jsonify If True, returns list object. If False, returns
-        tab-separated table string."""
+    Parameters
+    ----------
+    jsonify
+        Boolean which controls the return type
+
+    Returns
+    -------
+    groups
+        List of UNIX groups
+    tsv
+        Tab-seperated table string
+    """
 
     db = sqlite3.connect(DATABASE_NAME)
     cursor = db.cursor()
@@ -122,13 +150,19 @@ def getGroups(jsonify, active_only=False):
         return tsv
 
 def startInstance(group, lifetime, caller):
-    """Start a Treeserve instance.
+    """
+    Start a Treeserve instance.
 
-    @param group Name of the Unix group to start an instance for
-    @param lifetime String indicating how long the instance will stay up
+    Parameters
+    ----------
+    group
+        Name of the Unix group to start an instance for
+    lifetime
+        String indicating how long the instance will stay up
         before being automatically destroyed. For example: '8 hours',
         '25 minutes', 'forever'
-    @param caller Either 'cli' or the name of a logger object. If 'cli',
+    caller
+        Either 'cli' or the name of a logger object. If 'cli',
         output will be printed to stdout, if anything else caller will
         be used as an argument to 'logging.getLogger()'
     """
@@ -231,6 +265,19 @@ def startInstance(group, lifetime, caller):
             "Group: {}\n\tLifetime: {}".format(info.id, group, lifetime))
 
 def updateBuildingInstances(db_name=DATABASE_NAME):
+    """
+    Updates the building instances
+
+    Parameters
+    ----------
+    db_name
+        Stores the name of the SQL database
+
+    Raises
+    ------
+    URLError
+        Raised if there is an error with the URL used
+    """
     # will probably only ever be called by the daemon
     logger = logging.getLogger("daemon")
     db = sqlite3.connect(db_name)
@@ -288,8 +335,23 @@ def updateBuildingInstances(db_name=DATABASE_NAME):
     db.close()
 
 def generateGroupDatabase(caller, db_name=DATABASE_NAME):
-    """Fetches mpistat chunks from S3 and creates a catalogue of
+    """
+    Fetches mpistat chunks from S3 and creates a catalogue of
     available groups and estimates for their RAM and time requirements.
+
+    Parameters
+    ----------
+    caller
+        Either 'cli' or the name of a logger object. If 'cli',
+        output will be printed to stdout, if anything else caller will
+        be used as an argument to 'logging.getLogger()'
+    db_name
+        Stores the name of the SQL database
+
+    Raises
+    ------
+    CalledProcessError
+        Raised if a a process returns any exit value other than 0
     """
     if caller != "cli":
         logger = logging.getLogger(caller)
@@ -350,12 +412,18 @@ def generateGroupDatabase(caller, db_name=DATABASE_NAME):
     db.close()
 
 def destroyInstance(group, caller, db_name=DATABASE_NAME):
-    """ Destroys the instance for 'group'. The value of 'caller' is used to
+    """
+    Destroys the instance for 'group'. The value of 'caller' is used to
     decide how to log messages.
 
-    @param group Name of a Humgen Unix group
-    @param caller If 'cli', the program prints to stdout. If anything else,
-        it's passed to logging.getLogger to fetch a logger object"""
+    Parameters
+    ----------
+    group
+        Name of a Humgen Unix group
+    caller
+        If 'cli', the program prints to stdout. If anything else,
+        it's passed to logging.getLogger to fetch a logger object
+    """
     if caller != "cli":
         logger = logging.getLogger(caller)
 
@@ -404,9 +472,18 @@ def destroyInstance(group, caller, db_name=DATABASE_NAME):
     db.close()
 
 def checkDB(name):
-    """ Checks whether the DB file called 'name' already exists, and asks the
-    user how to proceed if it does. Returns the name of a clean SQLite DB for
-    the daemon to use.
+    """
+    Checks whether the DB file called 'name' already exists, and asks the
+    user how to proceed if it does.
+
+    Parameters
+    ----------
+    name
+        Name of an SQL database
+    Return
+    ------
+    name
+        The name of an SQLite Db for the daemon to use.
     """
 
     db = sqlite3.connect(name)

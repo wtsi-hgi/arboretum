@@ -17,9 +17,37 @@ from .logger import initLogger
 
 
 class Arboretum(service.Service):
-    def __init__(self, working_dir, *args, **kwargs):
-        super(Arboretum, self).__init__(*args, **kwargs)
+    """
+    A class used to represent the Arboretum daemon
 
+    ...
+
+    Methods
+    -------
+    run
+        Main run loop of the daemon process used to setup processes
+    getHealthString(process_health)
+        Getter function that turns the processes' health into a String
+    pruneLoop(exit_event)
+        Exit Event checker & Wrapper function for pruneExpiredInstances
+    updateLoop(exit_event)
+        Exit Event checker & Wrapper function for updateBuildingInstances
+    updateGroupsLoop(exit_event)
+        Updates group database every hour checking for exit event during sleep phase
+    pruneExpiredInstances
+        Checks active instance's lifetime and destroys where appropriate
+
+
+    """
+    def __init__(self, working_dir, *args, **kwargs):
+        """
+        Parameters
+        ----------
+        working_dir : str
+            z
+        """
+        super(Arboretum, self).__init__(*args, **kwargs)
+]
         self.LOGGER_NAME = "daemon"
         self.logger = initLogger(self.LOGGER_NAME, "DAEMON")
 
@@ -33,6 +61,17 @@ class Arboretum(service.Service):
         self.db_path = str(self.db_path)
 
     def run(self):
+        """
+        Main run loop of the daemon
+
+        Sets up socket connection, establishes the processes and
+        loops checking for a change of state
+
+        Raises
+        ------
+        NameError
+            If the socket or event doesn't exist
+        """
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 # creates IPv4 TCP socket for the daemon and CLI to talk over
@@ -117,6 +156,19 @@ class Arboretum(service.Service):
             raise e
 
     def getHealthString(self, process_health):
+        """
+        Getter function that turns the processes' health into a String
+
+        Parameters
+        ----------
+        process_health
+            z
+
+        Returns
+        -------
+        string : str
+            z
+        """
         string = ""
         for process in process_health.keys():
             string += "{}={} ".format(process, process_health[process])
@@ -124,16 +176,35 @@ class Arboretum(service.Service):
         return string
 
     def pruneLoop(self, exit_event):
+        """
+        Exit Event checker & Wrapper function for pruneExpiredInstances
+
+        Parameters
+        ----------
+        exit_event
+            Multiprocessing event that controls the running of the daemon's processes
+        """
         while not exit_event.is_set():
             self.pruneExpiredInstances()
             time.sleep(2)
 
     def updateLoop(self, exit_event):
+        """
+        Exit Event checker & Wrapper function for updateBuildingInstances
+        """
         while not exit_event.is_set():
             instances.updateBuildingInstances(self.db_path)
             time.sleep(5)
 
     def updateGroupsLoop(self, exit_event):
+        """
+        Updates group database every hour checking for exit event during sleep phase
+
+        Parameters
+        ----------
+        exit_event
+            Multiprocessing event that controls the running of the daemon's processes
+        """
         while not exit_event.is_set():
             instances.generateGroupDatabase("daemon", db_name=self.db_path)
             # sleep for an hour, waking up every two seconds so that the exit
@@ -146,6 +217,9 @@ class Arboretum(service.Service):
                 count += 2
 
     def pruneExpiredInstances(self):
+        """
+        Checks active instance's lifetime and destroys where appropriate
+        """
         db = sqlite3.connect(self.db_path)
         cursor = db.cursor()
 
