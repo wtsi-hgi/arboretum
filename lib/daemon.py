@@ -162,12 +162,12 @@ class Arboretum(service.Service):
         Parameters
         ----------
         process_health
-            z
+            dictionary of processes and their status
 
         Returns
         -------
         string : str
-            z
+            a string form of process_health
         """
         string = ""
         for process in process_health.keys():
