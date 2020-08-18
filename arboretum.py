@@ -19,6 +19,21 @@ from lib.constants import DATABASE_NAME
 
 LOGGER_NAME = "cli"
 
+"""
+The following parser arguments create functionalities that the user can enter
+in order to interact with the daemon. The following commands are operations
+the user can use with the daemon where <> compulsory fields, [] optional fields:
+
+start
+stop
+status
+active
+create <group> [--lifetime <lifetime>]
+destroy <group>
+update
+groups
+"""
+
 parser = argparse.ArgumentParser(description="Arboretum - A system to start, monitor, and destroy OpenStack Branchserve instances.")
 
 subparsers = parser.add_subparsers(dest='subparser')
@@ -57,7 +72,15 @@ parser_groups = subparsers.add_parser('groups',
     help="Print a list of available groups and their requirements.")
 
 def verifyLifetime(lifetime):
-    """Syntax checker for the 'lifetime' argument."""
+    """
+    Syntax checker for the 'lifetime' argument
+
+    Parameters
+    ----------
+    lifetime : str
+        Lifetime of the instance of the form: 1-3 digits followed
+        by minutes/hours/days or just the word forever.
+    """
     if re.search("(^\d{1,3} (minutes?|hours?|days?)$)|(^forever$)", lifetime) is None:
         print("--lifetime argument {} isn't valid.\nFormat: [xyz] minutes/" \
             "hours/days OR forever\nNote: [xyz] should be three digits " \
@@ -68,6 +91,16 @@ def verifyLifetime(lifetime):
         return lifetime
 
 def getDaemonStatus():
+    """
+    Creates the daemon
+
+    All daemons created will refer to the same daemon 'arboretum'
+
+    Returns
+    -------
+    data
+        a status string returned by the daemon
+    """
     service = Arboretum(os.path.abspath(''), 'arboretum', pid_dir='/tmp',
         signals=[10])
 
@@ -84,10 +117,16 @@ if __name__ == '__main__':
     initLogger(LOGGER_NAME, "CLI")
     args = parser.parse_args()
 
+    #Creates the daemon, all daemons created will refer to the same daemon 'arboretum'
     # daemon's working directory is root, so it needs the current working dir
     # signal 10 (SIGUSR1) is used for user-defined signals
     service = Arboretum(os.path.abspath(''), 'arboretum', pid_dir='/tmp',
         signals=[10])
+
+    """
+    The following lines of code control what the daemon does depending
+    on the user input
+    """
 
     if args.subparser == "start":
         if service.is_running():
