@@ -1,0 +1,36 @@
+{
+  "builders": [
+    {
+      "type": "openstack",
+      "ssh_username": "ubuntu",
+      "image_name": "hgi-arboretum-image",
+      "image_visibility": "shared",
+      "source_image": "2896f329-9951-4fb4-b56f-187a11e1c2c6",
+      "flavor": "m1.small",
+      "identity_endpoint": "https://eta.internal.sanger.ac.uk:13000/v3",
+      "networks": ["228336aa-eb2b-4c6b-ac0e-8abd9ed9e72f"],
+      "security_groups": [
+        "c592e2b6-6303-4ea2-ad79-d5f5c9848d20",
+        "124104ae-3c95-4dcf-ab74-4777481d8f67",
+        "f870f87f-ea3e-4504-bf35-cf0d50158184",
+        "d4359d2d-fb45-4d25-a224-231218cc309a"
+        ]
+    }
+  ],
+  "provisioners": [
+    {
+      "type": "file",
+      "source": "scripts/wait-for-apt-lock.sh",
+      "destination": "~/"
+    },
+    {
+      "type": "file",
+      "source": "scripts/setup.sh",
+      "destination": "~/"
+    },
+    {
+      "type": "shell",
+      "script": "scripts/setup.sh"
+    }
+  ]
+}
