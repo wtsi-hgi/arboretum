@@ -47,7 +47,7 @@ class Arboretum(service.Service):
             z
         """
         super(Arboretum, self).__init__(*args, **kwargs)
-]
+
         self.LOGGER_NAME = "daemon"
         self.logger = initLogger(self.LOGGER_NAME, "DAEMON")
 
