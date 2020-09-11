@@ -230,7 +230,8 @@ def startInstance(group, lifetime, caller):
     userdata = template.render(group_name = group)
 
     info = conn.create_server(name=name,
-        image='hgi-branchserve-host',
+        image='hgi-arboretum-image',
+        key_name='mercury',
         flavor=flavor,
         network='cloudforms_network',
         security_groups=['default', 'cloudforms_web_in',
